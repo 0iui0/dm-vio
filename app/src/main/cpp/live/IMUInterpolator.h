@@ -28,7 +28,6 @@
 #include <fstream>
 #include <map>
 #include "FrameContainer.h"
-#include "DatasetSaver.h"
 #include <mutex>
 
 namespace dmvio
@@ -73,7 +72,7 @@ class IMUInterpolator
 {
 public:
     // A reference to frameContainer is kept. This is where IMU data and images are sent.
-    IMUInterpolator(FrameContainer& frameContainer, DatasetSaver* datasetSaver);
+    IMUInterpolator(FrameContainer& frameContainer);
 
     // Shall be called everytime accelerometer data arrives.
     void addAccData(std::vector<float> data, double timestamp);
@@ -87,7 +86,6 @@ public:
 private:
 
     FrameContainer& frameContainer;
-    DatasetSaver* saver = nullptr; // also save IMU data to file.
 
     // Protects all methods.
     std::mutex mutex;

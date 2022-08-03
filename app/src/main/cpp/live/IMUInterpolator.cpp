@@ -30,8 +30,8 @@
 
 using std::vector;
 
-dmvio::IMUInterpolator::IMUInterpolator(dmvio::FrameContainer& frameContainer, DatasetSaver* datasetSaver)
-        : frameContainer(frameContainer), saver(datasetSaver)
+dmvio::IMUInterpolator::IMUInterpolator(dmvio::FrameContainer& frameContainer)
+        : frameContainer(frameContainer)
 {}
 
 void dmvio::IMUInterpolator::addAccData(vector<float> data, double timestamp)
@@ -81,24 +81,6 @@ void dmvio::IMUInterpolator::insertAccDataIfNecessary()
             data.accSet = true;
         }
         it++;
-    }
-    if(!saver) return;
-    // Save IMU data to file.
-    for(auto&& data : output)
-    {
-        if(data.saveStatus != IMUDataDuringInterpolation::DONT_SAVE)
-        {
-            if(!data.accSet || !data.gyrSet)
-            {
-                // Not set yet --> stop saving.
-                break;
-            }
-            if(data.saveStatus == IMUDataDuringInterpolation::SHALL_SAVE)
-            {
-                saver->addIMUData(data.timestamp, data.accData, data.gyrData);
-                data.saveStatus = IMUDataDuringInterpolation::SAVED;
-            }
-        }
     }
 }
 
