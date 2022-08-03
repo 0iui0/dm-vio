@@ -27,7 +27,7 @@
 #include <iostream>
 #include <functional>
 #include <assert.h>
-#include <pangolin/var/var.h>
+//#include <pangolin/var/var.h>
 
 // This file contains utils for settings.
 // Most settings should be in (potentially nested) settings classes which.
@@ -83,24 +83,24 @@ public:
 
     void createVar() override
     {
-        if(boolConstr)
-        {
-            var.reset(new pangolin::Var<T>("ui." + name, *pointer, toggle));
-        }else
-        {
-            var.reset(new pangolin::Var<T>("ui." + name, *pointer, min, max));
-        }
+//        if(boolConstr)
+//        {
+//            var.reset(new pangolin::Var<T>("ui." + name, *pointer, toggle));
+//        }else
+//        {
+//            var.reset(new pangolin::Var<T>("ui." + name, *pointer, min, max));
+//        }
     }
 
     void updateVar() override
     {
-        *pointer = var->Get();
-        assert(var);
+//        *pointer = var->Get();
+//        assert(var);
     }
 
 private:
     std::string name;
-    std::unique_ptr<pangolin::Var<T>> var;
+//    std::unique_ptr<pangolin::Var<T>> var;
     T* pointer;
     bool boolConstr, toggle;
     double min, max;
