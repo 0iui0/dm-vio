@@ -167,6 +167,7 @@ public:
 
 	void setGammaFunction(float* BInv);
     void setOriginalCalib(const VecXf &originalCalib, int originalW, int originalH);
+	CalibHessian& getCalibHessian() { return Hcalib; }
 
 private:
 
