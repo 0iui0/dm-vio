@@ -28,7 +28,7 @@ import java.util.Stack;
 public class DSORenderer extends Renderer {
 
     public static final String TAG = DSORenderer.class.getSimpleName();
-    private static final int MAX_POINTS = 200000;
+    private static final int MAX_POINTS = 3000000;
     private RenderListener mRenderListener;
     private Object3D mCurrentCameraFrame;
     private float intrinsics[];
