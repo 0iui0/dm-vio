@@ -956,6 +956,26 @@ void FullSystem::addActiveFrame(ImageAndExposure* image, int id, dmvio::IMUData*
                 std::cout << "InitTimeBetweenFrames: " << timeBetweenFrames << std::endl;
                 if(timeBetweenFrames > imuIntegration.getImuSettings().maxTimeBetweenInitFrames)
                 {
+                    // // Make this the first frame.
+                    // // delete old first frame
+                    // coarseInitializer->firstFrame->shell->poseValid = false;
+                    // delete coarseInitializer->firstFrame;
+
+                    // // Clear frame history
+                    // allFrameHistory.pop_back(); // Pop the current shell as we do not want to delete it.
+                    // for(auto&& shell : allFrameHistory)
+                    // {
+                    //     delete shell;
+                    // }
+                    // allFrameHistory.clear();
+
+                    // // Set this to the first id again.
+                    // shell->marginalizedAt = shell->id = allFrameHistory.size();
+                    // allFrameHistory.push_back(shell);
+
+                    // if(setting_useIMU) imuIntegration.resetBAPreintegration();
+
+                    // coarseInitializer->setFirst(&Hcalib, fh);
                     // Do full reset so that the next frame becomes the first initializer frame.
                     setting_fullResetRequested = true;
                 }else
