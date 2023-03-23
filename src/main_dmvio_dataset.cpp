@@ -25,7 +25,6 @@
 
 // Main file for running on datasets, based on the main file of DSO.
 
-#include "util/MainSettings.h"
 #include <thread>
 #include <locale.h>
 #include <signal.h>
@@ -36,6 +35,7 @@
 #include "IOWrapper/Output3DWrapper.h"
 #include "IOWrapper/ImageDisplay.h"
 
+#include <opencv2/core.hpp>
 
 #include <boost/thread.hpp>
 #include "dso/util/settings.h"
@@ -50,19 +50,31 @@
 #include "FullSystem/PixelSelector2.h"
 
 #include <util/SettingsUtil.h>
+#include <opencv2/highgui.hpp>
 
 #include "IOWrapper/Pangolin/PangolinDSOViewer.h"
 #include "IOWrapper/OutputWrapper/SampleOutputWrapper.h"
 
-std::string gtFile = "";
-std::string source = "";
-std::string imuFile = "";
+namespace dso{
 
+std::string gtFile = "";
+std::string vignette = "";
+std::string gammaCalib = "";
+std::string source = "";
+std::string calib = "";
+std::string imuFile = "";
+std::string imuCalibFile = "";
 bool reverse = false;
 int start = 0;
 int end = 100000;
-int maxPreloadImages = 0; // If set we only preload if there are less images to be loade.
+float playbackSpeed = 0;    // 0 for linearize (play as fast as possible, while sequentializing tracking & mapping). otherwise, factor on timestamps.
+bool preload = true;
+int maxPreloadImages = 100; // If set we only preload if there are less images to be loade.
 bool useSampleOutput = false;
+
+
+int mode = 0;
+
 
 using namespace dso;
 
@@ -89,8 +101,278 @@ void exitThread()
 }
 
 
+void settingsDefault(int preset)
+{
+    printf("\n=============== PRESET Settings: ===============\n");
+    if(preset == 0 || preset == 1)
+    {
+        printf("DEFAULT settings:\n"
+               "- %s real-time enforcing\n"
+               "- 2000 active points\n"
+               "- 5-7 active frames\n"
+               "- 1-6 LM iteration each KF\n"
+               "- original image resolution\n", preset == 0 ? "no " : "1x");
+
+        playbackSpeed = (preset == 0 ? 0 : 1.0);
+        preload = preset == 1;
+        setting_desiredImmatureDensity = 1500;
+        // setting_desiredPointDensity = 2000;
+        setting_desiredPointDensity = 1000;
+        setting_minFrames = 5;
+        setting_maxFrames = 7;
+        setting_maxOptIterations = 6;
+        setting_minOptIterations = 1;
+
+        setting_logStuff = false;
+    }
+
+    if(preset == 2 || preset == 3)
+    {
+        printf("FAST settings:\n"
+               "- %s real-time enforcing\n"
+               "- 800 active points\n"
+               "- 4-6 active frames\n"
+               "- 1-4 LM iteration each KF\n"
+               "- 424 x 320 image resolution\n", preset == 0 ? "no " : "5x");
+
+        playbackSpeed = (preset == 2 ? 0 : 5);
+        preload = preset == 3;
+        setting_desiredImmatureDensity = 600;
+        setting_desiredPointDensity = 800;
+        setting_minFrames = 4;
+        setting_maxFrames = 6;
+        setting_maxOptIterations = 4;
+        setting_minOptIterations = 1;
+
+        benchmarkSetting_width = 424;
+        benchmarkSetting_height = 320;
+
+        setting_logStuff = false;
+    }
+
+    printf("==============================================\n");
+}
 
 
+void parseArgument(char* arg, dmvio::SettingsUtil& settingsUtil)
+{
+    int option;
+    float foption;
+    char buf[1000];
+
+    // --------------------------------------------------
+    // These are mostly the original DSO commandline arguments which also work for DM-VIO.
+    // The DM-VIO specific settings can also be set with commandline arguments (and also with the yaml settings file)
+    // and have been registered in the main function. See IMUSettings and its members for details.
+    // --------------------------------------------------
+
+    if(1 == sscanf(arg, "sampleoutput=%d", &option))
+    {
+        if(option == 1)
+        {
+            useSampleOutput = true;
+            printf("USING SAMPLE OUTPUT WRAPPER!\n");
+        }
+        return;
+    }
+
+    if(1 == sscanf(arg, "quiet=%d", &option))
+    {
+        if(option == 1)
+        {
+            setting_debugout_runquiet = true;
+            printf("QUIET MODE, I'll shut up!\n");
+        }
+        return;
+    }
+
+    if(1 == sscanf(arg, "preset=%d", &option))
+    {
+        settingsDefault(option);
+        return;
+    }
+
+
+    if(1 == sscanf(arg, "nolog=%d", &option))
+    {
+        if(option == 1)
+        {
+            setting_logStuff = false;
+            printf("DISABLE LOGGING!\n");
+        }
+        return;
+    }
+    if(1 == sscanf(arg, "reverse=%d", &option))
+    {
+        if(option == 1)
+        {
+            reverse = true;
+            printf("REVERSE!\n");
+        }
+        return;
+    }
+    if(1 == sscanf(arg, "nogui=%d", &option))
+    {
+        if(option == 1)
+        {
+            disableAllDisplay = true;
+            printf("NO GUI!\n");
+        }
+        return;
+    }
+    if(1 == sscanf(arg, "nomt=%d", &option))
+    {
+        if(option == 1)
+        {
+            multiThreading = false;
+            printf("NO MultiThreading!\n");
+        }
+        return;
+    }
+    if(1 == sscanf(arg, "start=%d", &option))
+    {
+        start = option;
+        printf("START AT %d!\n", start);
+        return;
+    }
+    if(1 == sscanf(arg, "end=%d", &option))
+    {
+        end = option;
+        printf("END AT %d!\n", start);
+        return;
+    }
+
+    if(1 == sscanf(arg, "files=%s", buf))
+    {
+        source = buf;
+        printf("loading data from %s!\n", source.c_str());
+        return;
+    }
+
+    if(1 == sscanf(arg, "calib=%s", buf))
+    {
+        calib = buf;
+        printf("loading calibration from %s!\n", calib.c_str());
+        return;
+    }
+
+    if(1 == sscanf(arg, "vignette=%s", buf))
+    {
+        vignette = buf;
+        printf("loading vignette from %s!\n", vignette.c_str());
+        return;
+    }
+
+    if(1 == sscanf(arg, "gtFile=%s", buf))
+    {
+        gtFile = buf;
+        printf("loading gtFile from %s!\n", gtFile.c_str());
+        return;
+    }
+
+    if(1 == sscanf(arg, "imuCalib=%s", buf))
+    {
+        imuCalibFile = buf;
+        printf("Loading imu parameters from %s!\n", imuCalibFile.c_str());
+        imuCalibration.loadFromFile(imuCalibFile);
+        return;
+    }
+
+    if(1 == sscanf(arg, "imuFile=%s", buf))
+    {
+        imuFile = buf;
+        printf("IMU file is locatd at: %s!\n", imuFile.c_str());
+        return;
+    }
+
+    if(1 == sscanf(arg, "useimu=%d", &option))
+    {
+        if(option == 0)
+        {
+            printf("Disabling IMU integration!\n");
+            setting_useIMU = false;
+        }else if(option == 1)
+        {
+            printf("Enabling IMU integration!\n");
+            setting_useIMU = true;
+        }
+        return;
+    }
+
+    if(1 == sscanf(arg, "gamma=%s", buf))
+    {
+        gammaCalib = buf;
+        printf("loading gammaCalib from %s!\n", gammaCalib.c_str());
+        return;
+    }
+
+    if(1 == sscanf(arg, "speed=%f", &foption))
+    {
+        playbackSpeed = foption;
+        printf("PLAYBACK SPEED %f!\n", playbackSpeed);
+        return;
+    }
+
+    if(1 == sscanf(arg, "save=%d", &option))
+    {
+        if(option == 1)
+        {
+            debugSaveImages = true;
+            if(42 == system("rm -rf images_out"))
+                printf("system call returned 42 - what are the odds?. This is only here to shut up the compiler.\n");
+            if(42 == system("mkdir images_out"))
+                printf("system call returned 42 - what are the odds?. This is only here to shut up the compiler.\n");
+            if(42 == system("rm -rf images_out"))
+                printf("system call returned 42 - what are the odds?. This is only here to shut up the compiler.\n");
+            if(42 == system("mkdir images_out"))
+                printf("system call returned 42 - what are the odds?. This is only here to shut up the compiler.\n");
+            printf("SAVE IMAGES!\n");
+        }
+        return;
+    }
+
+    if(1 == sscanf(arg, "mode=%d", &option))
+    {
+
+        mode = option;
+        if(option == 0)
+        {
+            printf("PHOTOMETRIC MODE WITH CALIBRATION!\n");
+        }
+        if(option == 1)
+        {
+            printf("PHOTOMETRIC MODE WITHOUT CALIBRATION!\n");
+            setting_photometricCalibration = 0;
+            setting_affineOptModeA = 0; //-1: fix. >=0: optimize (with prior, if > 0).
+            setting_affineOptModeB = 0; //-1: fix. >=0: optimize (with prior, if > 0).
+        }
+        if(option == 2)
+        {
+            printf("PHOTOMETRIC MODE WITH PERFECT IMAGES!\n");
+            setting_photometricCalibration = 0;
+            setting_affineOptModeA = -1; //-1: fix. >=0: optimize (with prior, if > 0).
+            setting_affineOptModeB = -1; //-1: fix. >=0: optimize (with prior, if > 0).
+            setting_minGradHistAdd = 3;
+        }
+        return;
+    }
+
+    if(1 == sscanf(arg, "settingsFile=%s", buf))
+    {
+        YAML::Node settings = YAML::LoadFile(buf);
+        settingsUtil.tryReadFromYaml(settings);
+        printf("Loading settings from yaml file: %s!\n", imuCalibFile.c_str());
+        return;
+    }
+
+    if(settingsUtil.tryReadFromCommandLine(arg))
+    {
+        return;
+    }
+
+    printf("could not parse argument \"%s\"!!!!\n", arg);
+    assert(0);
+}
 
 
 void run(ImageFolderReader* reader, IOWrap::PangolinDSOViewer* viewer)
@@ -118,7 +400,7 @@ void run(ImageFolderReader* reader, IOWrap::PangolinDSOViewer* viewer)
     }
 
 
-    bool linearizeOperation = (mainSettings.playbackSpeed == 0);
+    bool linearizeOperation = (playbackSpeed == 0);
 
     if(linearizeOperation && setting_minFramesBetweenKeyframes < 0)
     {
@@ -155,21 +437,21 @@ void run(ImageFolderReader* reader, IOWrap::PangolinDSOViewer* viewer)
         {
             double tsThis = reader->getTimestamp(idsToPlay[idsToPlay.size() - 1]);
             double tsPrev = reader->getTimestamp(idsToPlay[idsToPlay.size() - 2]);
-            timesToPlayAt.push_back(timesToPlayAt.back() + fabs(tsThis - tsPrev) / mainSettings.playbackSpeed);
+            timesToPlayAt.push_back(timesToPlayAt.back() + fabs(tsThis - tsPrev) / playbackSpeed);
         }
     }
 
-    if(mainSettings.preload && maxPreloadImages > 0)
+    if(preload && maxPreloadImages > 0)
     {
         if(reader->getNumImages() > maxPreloadImages)
         {
             printf("maxPreloadImages EXCEEDED! NOT PRELOADING!\n");
-            mainSettings.preload = false;
+            preload = false;
         }
     }
 
     std::vector<ImageAndExposure*> preloadedImages;
-    if(mainSettings.preload)
+    if(preload)
     {
         printf("LOADING ALL IMAGES!\n");
         for(int ii = 0; ii < (int) idsToPlay.size(); ii++)
@@ -201,14 +483,14 @@ void run(ImageFolderReader* reader, IOWrap::PangolinDSOViewer* viewer)
 
 
         ImageAndExposure* img;
-        if(mainSettings.preload)
+        if(preload)
             img = preloadedImages[ii];
         else
             img = reader->getImage(i);
 
 
         bool skipFrame = false;
-        if(mainSettings.playbackSpeed != 0)
+        if(playbackSpeed != 0)
         {
             struct timeval tv_now;
             gettimeofday(&tv_now, NULL);
@@ -329,7 +611,14 @@ void run(ImageFolderReader* reader, IOWrap::PangolinDSOViewer* viewer)
         tmlog.flush();
         tmlog.close();
     }
-
+    if (!isPCLfileClose)
+    {
+        ((IOWrap::SampleOutputWrapper*)fullSystem->outputWrapper[1])->pclFile.flush();
+        ((IOWrap::SampleOutputWrapper*)fullSystem->outputWrapper[1])->pclFile.close();
+        isPCLfileClose = true;
+        printf("pcl tmp file is auto closed.\n");
+    }
+    while(1){ if(dso::IOWrap::waitKey(100)==27)break; }
     for(IOWrap::Output3DWrapper* ow : fullSystem->outputWrapper)
     {
         ow->join();
@@ -344,6 +633,10 @@ void run(ImageFolderReader* reader, IOWrap::PangolinDSOViewer* viewer)
 
     printf("EXIT NOW!\n");
 }
+
+
+}
+
 
 int main(int argc, char** argv)
 {
@@ -360,27 +653,20 @@ int main(int argc, char** argv)
     // Create Settings files.
     imuSettings.registerArgs(*settingsUtil);
     imuCalibration.registerArgs(*settingsUtil);
-    mainSettings.registerArgs(*settingsUtil);
-
-    // Dataset specific arguments. For other commandline arguments check out MainSettings::parseArgument,
-    // MainSettings::registerArgs, IMUSettings.h and IMUInitSettings.h
-    settingsUtil->registerArg("files", source);
-    settingsUtil->registerArg("start", start);
-    settingsUtil->registerArg("end", end);
-    settingsUtil->registerArg("imuFile", imuFile);
-    settingsUtil->registerArg("gtFile", gtFile);
-    settingsUtil->registerArg("sampleoutput", useSampleOutput);
-    settingsUtil->registerArg("reverse", reverse);
+    settingsUtil->registerArg("setting_minOptIterations", setting_minOptIterations);
+    settingsUtil->registerArg("setting_maxOptIterations", setting_maxOptIterations);
+    settingsUtil->registerArg("setting_minIdepth", setting_minIdepth);
+    settingsUtil->registerArg("setting_solverMode", setting_solverMode);
     settingsUtil->registerArg("use16Bit", use16Bit);
+    settingsUtil->registerArg("setting_weightZeroPriorDSOInitY", setting_weightZeroPriorDSOInitY);
+    settingsUtil->registerArg("setting_weightZeroPriorDSOInitX", setting_weightZeroPriorDSOInitX);
+    settingsUtil->registerArg("setting_forceNoKFTranslationThresh", setting_forceNoKFTranslationThresh);
+    settingsUtil->registerArg("setting_minFramesBetweenKeyframes", setting_minFramesBetweenKeyframes);
+    settingsUtil->registerArg("preload", preload);
     settingsUtil->registerArg("maxPreloadImages", maxPreloadImages);
 
-    // This call will parse all commandline arguments and potentially also read a settings yaml file if passed.
-    mainSettings.parseArguments(argc, argv, *settingsUtil);
-
-    if(mainSettings.imuCalibFile != "")
-    {
-        imuCalibration.loadFromFile(mainSettings.imuCalibFile);
-    }
+    for(int i = 1; i < argc; i++)
+        parseArgument(argv[i], *settingsUtil);
 
     // Print settings to commandline and file.
     std::cout << "Settings:\n";
@@ -391,17 +677,17 @@ int main(int argc, char** argv)
         settingsUtil->printAllSettings(settingsStream);
     }
 
+
     // hook crtl+C.
     boost::thread exThread = boost::thread(exitThread);
 
-    ImageFolderReader* reader = new ImageFolderReader(source, mainSettings.calib, mainSettings.gammaCalib, mainSettings.vignette, use16Bit);
+    ImageFolderReader* reader = new ImageFolderReader(source, calib, gammaCalib, vignette, use16Bit);
     reader->loadIMUData(imuFile);
     reader->setGlobalCalibration();
 
     if(!disableAllDisplay)
     {
-        IOWrap::PangolinDSOViewer* viewer = new IOWrap::PangolinDSOViewer(wG[0], hG[0], false, settingsUtil,
-                                                                          nullptr);
+        IOWrap::PangolinDSOViewer* viewer = new IOWrap::PangolinDSOViewer(wG[0], hG[0], false, settingsUtil);
 
         boost::thread runThread = boost::thread(boost::bind(run, reader, viewer));
 
