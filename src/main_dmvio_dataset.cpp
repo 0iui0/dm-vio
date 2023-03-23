@@ -79,7 +79,6 @@ int mode = 0;
 using namespace dso;
 
 
-dmvio::MainSettings mainSettings;
 dmvio::IMUCalibration imuCalibration;
 dmvio::IMUSettings imuSettings;
 
