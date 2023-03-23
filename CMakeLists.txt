@@ -191,16 +191,26 @@ if (OpenCV_FOUND AND Pangolin_FOUND)
 	add_executable(dmvio_dataset ${PROJECT_SOURCE_DIR}/src/main_dmvio_dataset.cpp)
 	set(DMVIO_LINKED_LIBRARIES boost_system cxsparse ${BOOST_THREAD_LIBRARY} ${LIBZIP_LIBRARY} ${Pangolin_LIBRARIES} ${OpenCV_LIBS} gtsam ${YAML_CPP_LIBRARIES} ${STACKTRACE_LIBRARIES})
     target_link_libraries(dmvio_dataset dmvio ${DMVIO_LINKED_LIBRARIES})
-
-	if(realsense2_FOUND)
-		message("--- compiling dmvio_t265.")
-		set(dmvio_t265_SOURCE_FILES ${PROJECT_SOURCE_DIR}/src/live/RealsenseT265.cpp)
-		add_executable(dmvio_t265 ${PROJECT_SOURCE_DIR}/src/main_dmvio_t265.cpp ${dmvio_t265_SOURCE_FILES})
-		target_link_libraries(dmvio_t265 dmvio ${DMVIO_LINKED_LIBRARIES} realsense2::realsense2)
-	endif()
-
 else()
 	message("--- not building dmvio_dataset, since either don't have openCV or Pangolin.")
+endif()
+
+find_package(realsense2 QUIET)
+
+# build main executable (only if we have both OpenCV and Pangolin)
+if (realsense2_FOUND AND OpenCV_FOUND AND Pangolin_FOUND)
+	message("--- compiling d435i_online.")
+
+	set(dmvio_t265_SOURCE_FILES ${PROJECT_SOURCE_DIR}/src/live/RealsenseT265.cpp)
+	add_executable(dmvio_t265 ${PROJECT_SOURCE_DIR}/src/main_dmvio_t265.cpp ${dmvio_t265_SOURCE_FILES})
+	target_link_libraries(dmvio_t265 dmvio ${DMVIO_LINKED_LIBRARIES} realsense2::realsense2)
+
+	set(dmvio_d435i_SOURCE_FILES ${PROJECT_SOURCE_DIR}/src/live/RealsenseD435I.cpp)
+	add_executable(dmvio_d435i ${PROJECT_SOURCE_DIR}/src/main_dmvio_d435i.cpp ${dmvio_d435i_SOURCE_FILES})
+	# set(DMVIO_LINKED_LIBRARIES boost_system cxsparse ${BOOST_THREAD_LIBRARY} ${LIBZIP_LIBRARY} ${Pangolin_LIBRARIES} ${OpenCV_LIBS} gtsam ${YAML_CPP_LIBRARIES} ${STACKTRACE_LIBRARIES})
+    target_link_libraries(dmvio_d435i dmvio ${DMVIO_LINKED_LIBRARIES} realsense2::realsense2) # ${realsense2_LIBRARY}
+else()
+	message("--- not building d435i, since either don't have openCV or Pangolin.")
 endif()
 
 add_subdirectory(test)
